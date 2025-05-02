@@ -1,0 +1,7 @@
+node_modules/
+package-lock.json
+.env
+.vscode/settings.json
+swagger-output.json
+downloads/
+public/MapasCartografia/
