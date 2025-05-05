@@ -16,5 +16,8 @@ module.exports = function setupApi() {
   api.use('/administracion', require('../routes/administracion.routes'));
   api.use('/', require('../routes/log.routes'));
 
+  api.use('/roles', require('../routes/asignacion/role.routes'));
+  api.use('/especialista', require('../routes/asignacion/especialista.routes'));
+
   return api;
 };

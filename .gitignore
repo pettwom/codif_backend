@@ -5,3 +5,6 @@ package-lock.json
 swagger-output.json
 downloads/
 public/MapasCartografia/
+
+# Ignorar .idea
+.idea/

@@ -4,7 +4,7 @@
 
 require('dotenv').config();
 const debug = require('debug')('app:app');
-require('dotenv').config();
+// require('dotenv').config();
 const bodyParser = require('body-parser');
 const express = require('express');
 const http = require('http');
@@ -75,7 +75,7 @@ function middelwares() {
 
 function listen() {
     server.listen(port, () => {
-        console.log('Servidor corriendo en puerto', port);
+        console.log('Servidor corriendo en el puerto', port);
     });
 }
 
