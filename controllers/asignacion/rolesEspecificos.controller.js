@@ -1,92 +1,93 @@
-const { con } = require("../../config/db");
+const {con} = require("../../config/db");
 const jwt = require("jsonwebtoken");
 const { config } = require("../../common");
 
-// Para verificar si es especialista (GSP) - middleware
-const esEspecialista = async (req, res, next) => {
-    try {
-        // Obtenemos el token del header
-        const token = req.headers.authorization?.split(" ")[1];
-        if (!token) {
-            return res.status(401).json({
-                statusCode: 401,
-                message: "No autorizado: Token no proporcionado",
-                path: req.path
-            });
-        }
-
-        // Verificamos el token
-        // const decoded = jwt.verify(token, process.env.SECRET_KEY);
-        const decoded = jwt.verify(token, config.auth.secret);
-
-        // Verificamos si el usuario tiene asignado el rol de GSP
-        const verificarRolGSP = () => {
-            return new Promise((resolve, reject) => {
-                con.query(
-                    `SELECT a.id 
-                     FROM asignacion.asignaciones a
-                     JOIN autenticacion.rol r ON a.rol_id = r.id_rol
-                     WHERE a.usuario_id = $1 AND r.sistema = 'GSP' AND a.activo = TRUE`,
-                    [decoded.usuario.id_usuario],
-                    (err, result) => {
-                        if (err) reject(err);
-                        else resolve(result);
-                    }
-                );
-            });
-        };
-
-        const esGSP = await verificarRolGSP();
-
-        if (esGSP.rowCount === 0) {
-            return res.status(403).json({
-                statusCode: 403,
-                message: "Acceso denegado: Se requieren permisos de Especialista (GSP)",
-                path: req.path
-            });
-        }
-
-        // Guardamos la info del usuario para usar en los controladores
-        req.usuario = decoded.usuario;
-        next();
-    } catch (error) {
-        console.error("Error en esEspecialista:", error);
-        return res.status(401).json({
-            statusCode: 401,
-            message: "Token inválido o expirado",
-            path: req.path
-        });
-    }
+// Configuración de roles y permisos
+const ROLES_CONFIG = {
+    'GSP': ['JTMT'],
+    'JTMT': ['SUP'],
+    'SUP': ['COD']
 };
 
-// Para asignar roles de jefatura (JTM o JTT) para especialistas
-const asignarRolesJefatura = async (req, res) => {
+const verificarRol = (rolRequerido) => {
+    return async (req, res, next) => {
+        try {
+            const token = req.headers.authorization?.split(" ")[1];
+            if (!token) {
+                return res.status(401).json({
+                    statusCode: 401,
+                    message: "No autorizado: Token no proporcionado",
+                    path: req.path
+                });
+            }
+
+            const decoded = jwt.verify(token, config.auth.secret);
+
+            const verificarRolUsuario = () => {
+                return new Promise((resolve, reject) => {
+                    con.query(
+                        `SELECT a.id 
+                         FROM asignacion.asignaciones a
+                         JOIN autenticacion.rol r ON a.rol_id = r.id_rol
+                         WHERE a.usuario_id = $1 AND r.sistema = $2 AND a.activo = TRUE`,
+                        [decoded.usuario.id_usuario, rolRequerido],
+                        (err, result) => {
+                            if (err) reject(err);
+                            else resolve(result);
+                        }
+                    );
+                });
+            };
+
+            const tieneRol = await verificarRolUsuario();
+
+            if (tieneRol.rowCount === 0) {
+                return res.status(403).json({
+                    statusCode: 403,
+                    message: `Acceso denegado: Se requieren permisos de ${rolRequerido}`,
+                    path: req.path
+                });
+            }
+
+            req.usuario = decoded.usuario;
+            req.rolActual = rolRequerido;
+            next();
+        } catch (error) {
+            console.error(`Error en verificarRol(${rolRequerido}):`, error);
+            return res.status(401).json({
+                statusCode: 401,
+                message: "Token inválido o expirado",
+                path: req.path
+            });
+        }
+    };
+};
+
+const asignarRol = async (req, res) => {
     const client = await con.connect();
 
     try {
-        // Iniciamos una transacción
         await client.query('BEGIN');
 
-        const { usuario_id, rol_id, turno } = req.body;
+        const { usuario_id, rol_id, turno = 'N/A' } = req.body;
+        const rolActual = req.rolActual; // Rol del usuario que esta haciendo la asignacion
 
-        if (!usuario_id || !rol_id || !turno) {
+        if (!usuario_id || !rol_id) {
             return res.status(400).json({
                 statusCode: 400,
-                message: "Se requiere ID de usuario, ID de rol y turno",
-                path: "/especialista/asignar"
+                message: "Se requiere ID de usuario y ID de rol",
+                path: `/roles/asignar`
             });
         }
 
-        // Verificamos que el turno sea válido
-        if (!['MAÑANA', 'TARDE'].includes(turno)) {
+        if (!['MAÑANA', 'TARDE', 'N/A'].includes(turno)) {
             return res.status(400).json({
                 statusCode: 400,
-                message: "El turno debe ser 'MAÑANA' o 'TARDE'",
-                path: "/especialista/asignar"
+                message: "El turno debe ser 'MAÑANA', 'TARDE' o 'N/A'",
+                path: `/roles/asignar`
             });
         }
 
-        // Verificamos si el usuario existe
         const verificarUsuario = () => {
             return new Promise((resolve, reject) => {
                 client.query(
@@ -106,16 +107,15 @@ const asignarRolesJefatura = async (req, res) => {
             return res.status(404).json({
                 statusCode: 404,
                 message: "Usuario no encontrado",
-                path: "/especialista/asignar"
+                path: `/roles/asignar`
             });
         }
 
-        // Verificamos que el rol sea JTM o JTT
+        // Verifica que el rol a asignar este permitido para este usuario
         const verificarRol = () => {
             return new Promise((resolve, reject) => {
                 client.query(
-                    `SELECT id_rol, rol FROM autenticacion.rol 
-                     WHERE id_rol = $1 AND sistema IN ('JTMT')`,
+                    `SELECT id_rol, rol, sistema FROM autenticacion.rol WHERE id_rol = $1`,
                     [rol_id],
                     (err, result) => {
                         if (err) reject(err);
@@ -125,30 +125,44 @@ const asignarRolesJefatura = async (req, res) => {
             });
         };
 
-        const rolValido = await verificarRol();
+        const rolExiste = await verificarRol();
 
-        if (rolValido.rowCount === 0) {
-            return res.status(400).json({
-                statusCode: 400,
-                message: "El especialista solo puede asignar roles de jefatura (JTM o JTT)",
-                path: "/especialista/asignar"
+        if (rolExiste.rowCount === 0) {
+            return res.status(404).json({
+                statusCode: 404,
+                message: "Rol no encontrado o no permitido para asignación",
+                path: `/roles/asignar`
             });
         }
 
-        // Verificamos que el turno coincida con el rol
-        // const rolAsignado = rolValido.rows[0].rol;
-        const rolAsignado = rolValido.rows[0].sistema;
+        const rolAAsignar = rolExiste.rows[0].sistema;
 
-        // if ((rolAsignado === 'JTM' && turno !== 'MAÑANA') ||
-        //     (rolAsignado === 'JTT' && turno !== 'TARDE')) {
+        // Verificamos si el usuario tiene permiso para asignar este rol
+        const rolesPermitidos = ROLES_CONFIG[rolActual] || [];
+
+        if (!rolesPermitidos.includes(rolAAsignar)) {
+            return res.status(403).json({
+                statusCode: 403,
+                message: `No tiene permiso para asignar el rol ${rolAAsignar}`,
+                path: `/roles/asignar`
+            });
+        }
+
+        // // Validaciones específicas por tipo de rol
+        // if (rolAAsignar === 'JTM' && turno !== 'MAÑANA') {
         //     return res.status(400).json({
         //         statusCode: 400,
-        //         message: `El turno debe ser 'MAÑANA' para JTM y 'TARDE' para JTT`,
-        //         path: "/especialista/asignar"
+        //         message: "El rol JTM (Jefatura Turno Mañana) debe asignarse con turno 'MAÑANA'",
+        //         path: `/roles/asignar`
+        //     });
+        // } else if (rolAAsignar === 'JTT' && turno !== 'TARDE') {
+        //     return res.status(400).json({
+        //         statusCode: 400,
+        //         message: "El rol JTT (Jefatura Turno Tarde) debe asignarse con turno 'TARDE'",
+        //         path: `/roles/asignar`
         //     });
         // }
 
-        // Verificamos si ya existe una asignación activa
         const verificarAsignacionActiva = () => {
             return new Promise((resolve, reject) => {
                 client.query(
@@ -169,11 +183,10 @@ const asignarRolesJefatura = async (req, res) => {
             return res.status(400).json({
                 statusCode: 400,
                 message: "El usuario ya tiene este rol asignado y activo",
-                path: "/especialista/asignar"
+                path: `/roles/asignar`
             });
         }
 
-        // Verificamos si hay asignaciones desactivadas para reactivar
         const verificarAsignacionInactiva = () => {
             return new Promise((resolve, reject) => {
                 client.query(
@@ -194,7 +207,6 @@ const asignarRolesJefatura = async (req, res) => {
         let esReactivacion = false;
 
         if (asignacionInactiva.rowCount > 0) {
-            // Reactivamos la asignación existente
             const reactivarAsignacion = () => {
                 return new Promise((resolve, reject) => {
                     client.query(
@@ -203,10 +215,15 @@ const asignarRolesJefatura = async (req, res) => {
                              turno = $1, 
                              asignado_por = $2, 
                              fecha_asignacion = CURRENT_TIMESTAMP,
-                             motivo_cambio = 'REACTIVACION_POR_GSP'
+                             motivo_cambio = $4
                          WHERE id = $3
                          RETURNING id`,
-                        [turno, req.usuario.id_usuario, asignacionInactiva.rows[0].id],
+                        [
+                            turno,
+                            req.usuario.id_usuario,
+                            asignacionInactiva.rows[0].id,
+                            `REACTIVACION_POR_${rolActual}`
+                        ],
                         (err, result) => {
                             if (err) reject(err);
                             else resolve(result);
@@ -219,7 +236,6 @@ const asignarRolesJefatura = async (req, res) => {
             idAsignacion = asignacionReactivada.rows[0].id;
             esReactivacion = true;
         } else {
-            // Creamos una nueva asignación
             const crearAsignacion = () => {
                 return new Promise((resolve, reject) => {
                     client.query(
@@ -232,7 +248,7 @@ const asignarRolesJefatura = async (req, res) => {
                             rol_id,
                             req.usuario.id_usuario,
                             turno,
-                            'ASIGNACION_POR_GSP'
+                            `ASIGNACION_POR_${rolActual}`
                         ],
                         (err, result) => {
                             if (err) reject(err);
@@ -246,73 +262,67 @@ const asignarRolesJefatura = async (req, res) => {
             idAsignacion = nuevaAsignacion.rows[0].id;
         }
 
-        // Confirmamos la transacción
         await client.query('COMMIT');
 
-        // Preparamos la respuesta
         let mensaje = esReactivacion
-            ? "Rol de jefatura reactivado correctamente"
-            : "Rol de jefatura asignado correctamente";
+            ? `Rol de ${rolAAsignar} reactivado correctamente`
+            : `Rol de ${rolAAsignar} asignado correctamente`;
 
         return res.status(200).json({
             statusCode: 200,
             message: mensaje,
-            path: "/especialista/asignar",
+            path: `/roles/asignar`,
             icon: "success",
             asignacion: {
                 id: idAsignacion,
                 usuario_id,
                 nombre_usuario: usuarioExiste.rows[0].nombre,
                 rol_id,
-                nombre_rol: rolValido.rows[0].rol,
+                nombre_rol: rolAAsignar,
                 turno,
                 tipo: esReactivacion ? "REACTIVACION" : "NUEVA_ASIGNACION"
             }
         });
 
     } catch (error) {
-        // En caso de error, hacemos rollback
         await client.query('ROLLBACK');
-        console.error("Error en asignarRolesJefatura:", error);
+        console.error("Error en asignarRol:", error);
 
         return res.status(error.statusCode || 500).json({
             statusCode: error.statusCode || 500,
-            message: error.message || 'Error al asignar rol de jefatura',
-            path: "/especialista/asignar"
+            message: error.message || 'Error al asignar rol',
+            path: `/roles/asignar`
         });
     } finally {
-        // Liberamos el cliente
         client.release();
     }
 };
 
-// Para desactivar roles de jefatura
-const desactivarRolJefatura = async (req, res) => {
+const desactivarRol = async (req, res) => {
     const client = await con.connect();
 
     try {
-        // Iniciamos una transacción
         await client.query('BEGIN');
 
-        const { asignacion_id, motivo_cambio = 'DESACTIVACION_POR_GSP' } = req.body;
+        const { asignacion_id, motivo_cambio } = req.body;
+        const rolActual = req.rolActual;
 
         if (!asignacion_id) {
             return res.status(400).json({
                 statusCode: 400,
                 message: "Se requiere ID de asignación",
-                path: "/especialista/desactivar"
+                path: `/roles/desactivar`
             });
         }
 
-        // Verificamos si la asignación existe, está activa y es de jefatura
         const verificarAsignacion = () => {
             return new Promise((resolve, reject) => {
                 client.query(
-                    `SELECT a.*, u.aut_us_usuario AS nombre_usuario, r.rol AS nombre_rol
+                    `SELECT a.*, u.aut_us_usuario AS nombre_usuario, r.rol AS nombre_rol, r.sistema AS codigo_rol
                      FROM asignacion.asignaciones a
                      JOIN monitoreo.vw_usuarios u ON a.usuario_id = u.aut_id_usuario
                      JOIN autenticacion.rol r ON a.rol_id = r.id_rol
-                     WHERE a.id = $1 AND a.activo = TRUE AND r.sistema IN ('JTMT')`,
+                     WHERE a.id = $1 AND a.activo = TRUE`,
                     [asignacion_id],
                     (err, result) => {
                         if (err) reject(err);
@@ -327,21 +337,31 @@ const desactivarRolJefatura = async (req, res) => {
         if (asignacionExiste.rowCount === 0) {
             return res.status(404).json({
                 statusCode: 404,
-                message: "Asignación no encontrada, ya desactivada o no es de jefatura",
-                path: "/especialista/desactivar"
+                message: "Asignación no encontrada o ya desactivada",
+                path: `/roles/desactivar`
             });
         }
 
         const asignacion = asignacionExiste.rows[0];
 
-        // Desactivamos la asignación y definimos el motivo
+        const rolesPermitidos = ROLES_CONFIG[rolActual] || [];
+        if (!rolesPermitidos.includes(asignacion.codigo_rol)) {
+            return res.status(403).json({
+                statusCode: 403,
+                message: `No tiene permiso para desactivar el rol ${asignacion.codigo_rol}`,
+                path: `/roles/desactivar`
+            });
+        }
+
+        const motivoFinal = motivo_cambio || `DESACTIVACION_POR_${rolActual}`;
+
         const desactivarAsignacion = () => {
             return new Promise((resolve, reject) => {
                 client.query(
                     `UPDATE asignacion.asignaciones
                      SET activo = FALSE, motivo_cambio = $2
                      WHERE id = $1`,
-                    [asignacion_id, motivo_cambio],
+                    [asignacion_id, motivoFinal],
                     (err, result) => {
                         if (err) reject(err);
                         else resolve(result);
@@ -352,13 +372,12 @@ const desactivarRolJefatura = async (req, res) => {
 
         await desactivarAsignacion();
 
-        // Confirmamos la transacción
         await client.query('COMMIT');
 
         return res.status(200).json({
             statusCode: 200,
-            message: `Rol de jefatura desactivado correctamente para ${asignacion.nombre_usuario}`,
-            path: "/especialista/desactivar",
+            message: `Rol desactivado correctamente para ${asignacion.nombre_usuario}`,
+            path: `/roles/desactivar`,
             icon: "success",
             asignacion: {
                 id: asignacion.id,
@@ -366,44 +385,62 @@ const desactivarRolJefatura = async (req, res) => {
                 nombre_usuario: asignacion.nombre_usuario,
                 rol_id: asignacion.rol_id,
                 nombre_rol: asignacion.nombre_rol,
-                motivo_cambio
+                motivo_cambio: motivoFinal
             }
         });
 
     } catch (error) {
-        // En caso de error, hacemos rollback
         await client.query('ROLLBACK');
-        console.error("Error en desactivarRolJefatura:", error);
+        console.error("Error en desactivarRol:", error);
 
         return res.status(error.statusCode || 500).json({
             statusCode: error.statusCode || 500,
-            message: error.message || 'Error al desactivar rol de jefatura',
-            path: "/especialista/desactivar"
+            message: error.message || 'Error al desactivar rol',
+            path: `/roles/desactivar`
         });
     } finally {
-        // Liberamos el cliente
         client.release();
     }
 };
 
-// Método para obtener jefaturas asignadas
-const obtenerJefaturasAsignadas = async (req, res) => {
-
+const obtenerAsignacionesPorTipo = async (req, res) => {
     try {
-        // Consulta para obtener las asignaciones de jefatura activas
+        const rolActual = req.rolActual;
+        const rolesPermitidos = ROLES_CONFIG[rolActual] || [];
+
+        // Si no hay roles para este usuario, devolvemos un array vacío
+        if (rolesPermitidos.length === 0) {
+            return res.status(200).json({
+                statusCode: 200,
+                message: "No hay roles asignables para este usuario",
+                path: `/roles/asignaciones`,
+                icon: "info",
+                asignaciones: {
+                    mañana: [],
+                    tarde: [],
+                    na: [],
+                    total: 0
+                }
+            });
+        }
+
+        // Consulta para obtener las asignaciones activas de los roles que este usuario puede gestionar
         const obtenerAsignaciones = () => {
+            const rolesList = rolesPermitidos.map(rol => `'${rol}'`).join(', ');
+            const {id_usuario} = req.usuario;
+            console.log("rolesList", req.usuario);
             return new Promise((resolve, reject) => {
                 con.query(
                     `SELECT a.id, a.usuario_id, u.aut_us_usuario AS nombre_usuario, 
-                            a.rol_id, r.rol AS nombre_rol, a.turno, r.sistema AS codigo_rol, 
+                            a.rol_id, r.rol AS nombre_rol, a.turno, r.sistema AS codigo_rol,
                             a.fecha_asignacion, v.aut_us_usuario AS asignado_por_nombre
                      FROM asignacion.asignaciones a
                      JOIN monitoreo.vw_usuarios u ON a.usuario_id = u.aut_id_usuario
                      JOIN autenticacion.rol r ON a.rol_id = r.id_rol
                      LEFT JOIN monitoreo.vw_usuarios v ON a.asignado_por = v.aut_id_usuario
-                     WHERE a.activo = TRUE AND r.sistema IN ('JTMT')
+                     WHERE a.activo = TRUE AND r.sistema IN (${rolesList}) AND a.asignado_por = $1 
                      ORDER BY r.rol, a.fecha_asignacion DESC`,
-                    [],
+                    [id_usuario],
                     (err, result) => {
                         if (err) reject(err);
                         else resolve(result);
@@ -414,36 +451,45 @@ const obtenerJefaturasAsignadas = async (req, res) => {
 
         const asignaciones = await obtenerAsignaciones();
 
-        // Organizamos los resultados por tipo de jefatura
-        const jefaturasMañana = asignaciones.rows.filter(a => a.codigo_rol === 'JTMT' && a.turno === 'MAÑANA');
-        const jefaturasTarde = asignaciones.rows.filter(a => a.codigo_rol === 'JTMT' && a.turno === 'TARDE');
+        // Organizamos los resultados por turno
+        const asignacionesMañana = asignaciones.rows.filter(a => a.turno === 'MAÑANA');
+        const asignacionesTarde = asignaciones.rows.filter(a => a.turno === 'TARDE');
+        const asignacionesNA = asignaciones.rows.filter(a => a.turno === 'N/A');
+
+        // Agrupa por rol si hay varios roles permitidos
+        // const agrupadoPorRol = {};
+        // for (const rol of rolesPermitidos) {
+        //     agrupadoPorRol[rol] = asignaciones.rows.filter(a => a.codigo_rol === rol);
+        // }
 
         return res.status(200).json({
             statusCode: 200,
-            message: "Jefaturas asignadas obtenidas correctamente",
-            path: "/especialista/jefaturas",
+            message: "Asignaciones obtenidas correctamente",
+            path: `/roles/asignaciones`,
             icon: "success",
-            jefaturas: {
-                mañana: jefaturasMañana,
-                tarde: jefaturasTarde,
-                total: asignaciones.rowCount
+            asignaciones: {
+                mañana: asignacionesMañana,
+                tarde: asignacionesTarde,
+                sinTurno: asignacionesNA,
+                total: asignaciones.rowCount,
+                // por_rol: agrupadoPorRol
             }
         });
 
     } catch (error) {
-        console.error("Error en obtenerJefaturasAsignadas:", error);
+        console.error("Error en obtenerAsignacionesPorTipo:", error);
 
         return res.status(error.statusCode || 500).json({
             statusCode: error.statusCode || 500,
-            message: error.message || 'Error al obtener jefaturas asignadas',
-            path: "/especialista/jefaturas"
+            message: error.message || 'Error al obtener asignaciones',
+            path: `/roles/asignaciones`
         });
     }
 };
 
 module.exports = {
-    esEspecialista,
-    asignarRolesJefatura,
-    desactivarRolJefatura,
-    obtenerJefaturasAsignadas
+    verificarRol,
+    asignarRol,
+    desactivarRol,
+    obtenerAsignacionesPorTipo
 };
