@@ -26,7 +26,7 @@ const {
 
 router.get("/getCatalogo/:cuest", getCatalogo);
 router.get("/getDatos/:cuest/:cat", getDatos);
-router.get("/getDatosCatalogo/:cod", getDatosCatalogo);
+router.get("/getDatosCatalogo/:cod/:tipo", getDatosCatalogo);
 router.put("/deleteRegister", deleteRegister);
 router.post("/registerCatalogo", registerCatalogo);
 router.put("/editRegister", editRegister);

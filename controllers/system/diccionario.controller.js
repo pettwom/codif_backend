@@ -63,7 +63,7 @@ const getDatos = async (req, res) => {
   FROM codificacion.cod_catalogo cc
   join codificacion.cod_catologo_ls ccl on ccl.catalogo = cc.catalogo 
   WHERE lower(cc.cat_cuest) = lower('${cuest}') and ccl.id_catalogo = '${cat}' and cc.estado='ACTIVO' ORDER BY 1;`;
-    // console.log('getDatos ===> ',query);
+    console.log('getDatos ===> ', query);
 
     await con.query(query, (err, result) => {
       if (err) {
@@ -94,8 +94,12 @@ const getDatosCatalogo = async (req, res) => {
   // console.log('req-params getDatosCatalogo', req.params);
 
   let _user = await userData(req, res);
+  var query;
   if (_user) {
-    let query = `
+    console.log(req.params);
+
+    if (req.params.tipo == 'cat') {
+      query = `
   SELECT distinct row_number() over(order by cc.id_catalogo)number, cc.id_catalogo,
   cc.codigo, cc.descripcion, to_char(cc.feccre,  'dd-mm-yyyy') fecha_creacion, 
   cc.usucre creador, to_char(cc.fecmod, 'dd-mm-yyyy') fecha_modificacion, 
@@ -104,7 +108,14 @@ const getDatosCatalogo = async (req, res) => {
   join codificacion.cod_catologo_ls ccl on ccl.catalogo = cc.catalogo 
   WHERE cc.id_catalogo = ${req.params.cod} and cc.estado='ACTIVO' ORDER BY 1;
   `;
-    // console.log('getDatosCatalogo ===> ',query);
+    } else {
+      query = `
+   select cc.id_clasificador, cc.clas_desc, cc.clasificador, cc.codigo, cc.descripcion, cc.estado
+  from codificacion.cod_clasificador cc 
+  where cc.id_clasificador = ${req.params.cod} and cc.estado='ACTIVO' ORDER BY 1;
+  `;
+    }
+    console.log('getDatosCatalogo ===> ', query);
 
     await con.query(query, (err, result) => {
       if (err) {
@@ -135,10 +146,15 @@ const getDatosCatalogo = async (req, res) => {
 const deleteRegister = async (req, res) => {
   let _user = await userData(req, res);
   if (_user) {
-    const { cod } = req.body;
-    let query = `UPDATE codificacion.cod_catalogo SET estado='INACTIVO', fecmod=NOW(), usumod='${
-      _user.login
-    }' WHERE id_catalogo=${cod}`;
+    const { cod, tipo } = req.body;
+    var query; 
+    if(tipo== 'cat'){
+      query = `UPDATE codificacion.cod_catalogo SET estado='INACTIVO', fecmod=NOW(), usumod='${_user.login
+        }' WHERE id_catalogo=${cod}`;
+    }else{
+      query = `UPDATE codificacion.cod_clasificador SET estado='INACTIVO', fecmod=NOW(), usumod='${_user.login
+        }' WHERE id_clasificador=${cod}`;
+    }
     await con.query(query, (err, result) => {
       if (err) {
         return res.json({
@@ -167,7 +183,9 @@ const deleteRegister = async (req, res) => {
 const registerCatalogo = async (req, res) => {
   let _user = await userData(req, res);
   if (_user) {
-    const { codigo, descripcion, cuestionario, catalogo,categoria } = req.body;
+    console.log(req.body, 'body');
+
+    const { codigo, descripcion, cuestionario, catalogo, categoria, dataCat, categoria_select } = req.body;
     let duplicados = `
         select count(1)cant
         from codificacion.cod_catalogo ca
@@ -175,7 +193,8 @@ const registerCatalogo = async (req, res) => {
       `;
     const d = await con.query(duplicados);
 
-    if (d.rows[0].cant > 0) {
+
+    if (parseInt(d.rows[0].cant) > 0) {
       return res.json({
         title: "Error",
         icon: "error",
@@ -183,35 +202,32 @@ const registerCatalogo = async (req, res) => {
       });
     } else {
       var query
-      if(categoria == 'cat'){
-      query = `
+      if (categoria == 'cat') {
+        query = `
                   INSERT INTO "codificacion"."cod_catalogo" ("cat_cuest", "cat_desc", "catalogo", "codigo", "descripcion", "estado", "usucre", "feccre", "usumod", "fecmod", "descripcion_unida", "unico") 
-                  VALUES ('${cuestionario}', null, lower('${catalogo}'), lower('${codigo}'), trim('${descripcion}'), 'ACTIVO', '${
-        _user.login
-      }', current_timestamp, NULL, NULL, NULL, 0);
+                  VALUES ('${categoria_select}', null, '${dataCat}', '${codigo}', trim('${descripcion}'), 'ACTIVO', '${_user.login
+          }', current_timestamp, NULL, NULL, NULL, 0);
       `;
-    }else{
-      query = `
+      } else {
+        query = `
                   INSERT INTO "codificacion"."cod_clasificador" ("clas_desc", "clasificador", "codigo", "descripcion", "estado", "usucre", "feccre") 
-                  VALUES ('${cuestionario}', 'lower('${catalogo}')', 'lower('${codigo}')', 'trim('${descripcion}')', 'ACTIVO', '${
-        _user.login
-      }', 'current_timestamp');
+                  VALUES ('${categoria_select}', '${dataCat}', '${codigo}', trim('${descripcion}'), 'ACTIVO', '${_user.login
+          }', current_timestamp);
       `;
-    }
+      }
       await con.query(query, (err, result) => {
         if (err) {
-          console.log(err);
           return res.json({
             title: "Error",
             icon: "error",
             message: "Error al guardar el registro"
           });
         }
+
         return res.status(200).json({
           title: "Correcto",
           icon: "success",
           message: "Se guardó el registro correctamente",
-          data: result.rows[0]
         });
       });
     }
@@ -223,6 +239,7 @@ const registerCatalogo = async (req, res) => {
     });
   }
 };
+
 const editRegister = async (req, res) => {
   let _user = await userData(req, res);
   if (_user) {
@@ -279,7 +296,7 @@ const getClasificador = async (req, res) => {
           message: "Error al obtener el catalogo"
         });
       }
-      
+
       if (result.rowCount > 0) {
         return res.json({
           title: "Correcto",
@@ -298,17 +315,17 @@ const getClasificador = async (req, res) => {
   }
 };
 
-const getDatosClasificador = async(req, res)=>{
-  var query = `select row_number() over(order by clas_desc)number, clasificador, clas_desc , codigo, descripcion, to_char(cc.feccre, 'dd-mm-yyyy')fecha_creacion, cc.usucre creador, to_char(cc.fecmod, 'dd-mm-yyyy')fecha_modificacion, cc.usumod modificador
+const getDatosClasificador = async (req, res) => {
+  var query = `select row_number() over(order by clas_desc)number, id_clasificador, clasificador, clas_desc , codigo, descripcion, to_char(cc.feccre, 'dd-mm-yyyy')fecha_creacion, cc.usucre creador, to_char(cc.fecmod, 'dd-mm-yyyy')fecha_modificacion, cc.usumod modificador
   from codificacion.cod_clasificador cc 
   where upper(clasificador) = upper('${req.params.clas_select}')
   and estado = 'ACTIVO'
   order by codigo`
   console.log(query);
   await con.query(query, (err, result) => {
-    if(err){
+    if (err) {
       return res.json({
-        title:'Error',
+        title: 'Error',
         icon: 'error',
         text: err.message
       })
@@ -316,8 +333,8 @@ const getDatosClasificador = async(req, res)=>{
     return res.status(200).json({
       title: 'Correcto',
       icon: 'success',
-      text: result.rowCount > 0?'Se listaron correctamente':'No se encontraron Datos',
-      data: result.rowCount > 0?result.rows:''
+      text: result.rowCount > 0 ? 'Se listaron correctamente' : 'No se encontraron Datos',
+      data: result.rowCount > 0 ? result.rows : ''
     })
   })
 }
@@ -388,7 +405,7 @@ const updateCorrector = async (req, res) => {
           INSERT INTO "codificacion"."cod_err_corr" ("erradas", "corregidas", "usucre", "feccre", "estado")
           VALUES ('${req.body.erradas}', '${req.body.corregidas}', '${_user.login}', CURRENT_TIMESTAMP, 'ACTIVO');`);
       }
-      
+
       return res.status(200).json({
         title: "Correcto",
         icon: "success",
