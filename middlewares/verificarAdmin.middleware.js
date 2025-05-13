@@ -14,11 +14,8 @@ const esAdministrador = async (req, res, next) => {
             });
         }
 
-        // Verificamos el token
-        // const decoded = jwt.verify(token, process.env.ENCRIPT_SECRET);
         const decoded = jwt.verify(token, config.auth.secret);
 
-        // Verificamos si el usuario es administrador
         if (decoded.usuario.tipo_usuario !== "ADMINISTRADOR") {
             return res.status(403).json({
                 statusCode: 403,

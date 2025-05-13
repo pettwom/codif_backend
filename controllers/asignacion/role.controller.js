@@ -1,19 +1,21 @@
 const {con} = require("../../config/db");
 
-const obtenerRolesPorSistema = async (req, res) => {
+// ================== METODOS ANTERIORES ==================
+
+const obtenerRolesPorSistemaOld = async (req, res) => {
     try {
-        const { sistema } = req.params;
-        
+        const {sistema} = req.params;
+
         const sistemasArray = sistema.split(',').map(s => s.trim());
         const placeholders = sistemasArray.map((_, i) => `$${i + 1}`).join(', ');
-        
+
         const sqlQuery = `
             SELECT id_rol, rol, descripcion, nivel, sistema
             FROM autenticacion.rol
             WHERE sistema IN (${placeholders})
             ORDER BY id_rol
         `;
-        
+
         const consultarRoles = () => {
             return new Promise((resolve, reject) => {
                 con.query(
@@ -26,9 +28,9 @@ const obtenerRolesPorSistema = async (req, res) => {
                 );
             });
         };
-        
+
         const result = await consultarRoles();
-        
+
         if (result.rowCount > 0) {
             return res.status(200).json({
                 roles: result.rows,
@@ -56,189 +58,10 @@ const obtenerRolesPorSistema = async (req, res) => {
     }
 };
 
-const obtenerRolesPorJerarquia = async (req, res) => {
-    try {
-        const { tipo_usuario } = req.usuario;
-
-        const jerarquia = {
-            'ADMINISTRADOR': ['GSP', 'JTMT', 'SUP', 'COD'], 
-            'ESPECIALISTA': ['JTMT'],      
-            'JEFE DE TURNO': ['SUP'],      
-            'SUPERVISOR': ['COD'],         
-            'CODIFICADOR': []              
-        };
-
-        const sistemasPermitidos = jerarquia[tipo_usuario] || [];
-
-        // Si no tiene permisos para el sistema, retornar lista vacia
-        if (sistemasPermitidos.length === 0) {
-            return res.status(200).json({
-                roles: [],
-                icon: "info",
-                statusCode: 200,
-                message: `No tiene permisos para asignar roles`,
-                path: `/roles/jerarquia/sistemas`
-            });
-        }
-
-        // Construir query con placeholders para los sistemas permitidos
-        const placeholders = sistemasPermitidos.map((_, i) => `$${i + 1}`).join(', ');
-        
-        const sqlQuery = `
-            SELECT id_rol, rol, descripcion, nivel, sistema
-            FROM autenticacion.rol
-            WHERE sistema IN (${placeholders})
-            ORDER BY id_rol
-        `;
-        
-        // Función para ejecutar la consulta
-        const consultarRoles = () => {
-            return new Promise((resolve, reject) => {
-                con.query(
-                    sqlQuery,
-                    sistemasPermitidos,
-                    (err, result) => {
-                        if (err) reject(err);
-                        else resolve(result);
-                    }
-                );
-            });
-        };
-        
-        // Ejecutar la consulta
-        const result = await consultarRoles();
-        
-        // Verificar si hay resultados
-        if (result.rowCount > 0) {
-            return res.status(200).json({
-                roles: result.rows,
-                icon: "success",
-                statusCode: 200,
-                message: `Roles disponibles para ${tipo_usuario}`,
-                path: `/roles/jerarquia/sistemas`
-            });
-        } else {
-            return res.status(200).json({
-                roles: [],
-                icon: "info",
-                statusCode: 200,
-                message: `No se encontraron roles asignables para ${tipo_usuario}`,
-                path: `/roles/jerarquia/sistemas`
-            });
-        }
-    } catch (error) {
-        console.error("Error en obtenerRolesPorJerarquia:", error);
-        return res.status(error.sql ? 400 : 500).json({
-            statusCode: error.sql ? 400 : 500,
-            message: error.message || 'Error al obtener roles por jerarquía',
-            path: `/roles/jerarquia/sistemas`
-        });
-    }
-};
-
-const obtenerUsuariosPorJerarquia = async (req, res) => {
-    try {
-       const { nombre_corto } = req.params; 
-        
-      // Extraer el tipo de usuario del token
-      const { tipo_usuario } = req.usuario;
-      
-      // Jerarquía de roles y qué roles puede ver cada tipo de usuario
-      const jerarquia = {
-        'ADMINISTRADOR': ['ESPECIALISTA', 'JEFE DE TURNO', 'SUPERVISOR', 'CODIFICADOR'],
-        'ESPECIALISTA': ['JEFE DE TURNO'],
-        'JEFE DE TURNO': ['SUPERVISOR'],
-        'SUPERVISOR': ['CODIFICADOR'],
-        'CODIFICADOR': [] 
-      };
-      
-      // Verificar si el tipo de usuario es válido
-      if (!jerarquia[tipo_usuario]) {
-        return res.status(403).json({
-          icon: "error",
-          statusCode: 403,
-          message: "Tipo de usuario no autorizado",
-          path: "/roles/jerarquia"
-        });
-      }
-      
-      // Si el usuario no puede ver a nadie, retornar lista vacía
-      if (jerarquia[tipo_usuario].length === 0) {
-        return res.status(200).json({
-          roles: [],
-          icon: "info",
-          statusCode: 200,
-          message: "No tiene permisos para ver usuarios",
-          path: "/roles/jerarquia"
-        });
-      }
-      
-      // Construir la condición IN para la consulta SQL
-      const rolesVisibles = jerarquia[tipo_usuario];
-      const condicionRoles = rolesVisibles.map(rol => `'${rol}'`).join(', ');
-      
-      // Función para obtener usuarios filtrados por roles
-      const obtenerUsuariosFiltrados = () => {
-        return new Promise((resolve, reject) => {
-          con.query(
-            `SELECT aut_id_usuario,
-                    aut_us_usuario,
-                    aut_us_nombres,
-                    aut_us_paterno,
-                    aut_us_materno,
-                    aut_us_ci,
-                    per_correo_electronico,
-                    aut_us_rol,
-                    rol,
-                    aut_us_estado
-             FROM monitoreo.vw_usuarios
-             WHERE rol IN (${condicionRoles})
-             AND aut_us_rol IN (SELECT r.id_rol
-                               FROM autenticacion.rol r
-                               WHERE r.nombre_corto_nivel ILIKE $1)`,
-            [nombre_corto],
-            (err, result) => {
-              if (err) reject(err);
-              else resolve(result);
-            }
-          );
-        });
-      };
-      
-      // Obtener los usuarios según la jerarquía
-      const usuarios = await obtenerUsuariosFiltrados();
-      
-      // Verificar si hay resultados
-      if (usuarios.rowCount > 0) {
-        return res.status(200).json({
-          roles: usuarios.rows,
-          icon: "success",
-          statusCode: 200,
-          message: `Lista de usuarios visibles para ${tipo_usuario}`,
-          path: "/roles/jerarquia"
-        });
-      } else {
-        return res.status(204).json({
-          icon: "info",
-          statusCode: 204,
-          message: "No se encontraron usuarios",
-          path: "/roles/jerarquia"
-        });
-      }
-    } catch (error) {
-      console.error("Error en obtenerUsuariosPorJerarquia:", error);
-      return res.status(error.sql ? 400 : 500).json({
-        statusCode: error.sql ? 400 : 500,
-        message: error.message || 'Error al obtener usuarios por jerarquía',
-        path: "/roles/jerarquia"
-      });
-    }
-  };
-
-const obtenerTodosLosUsuariosDeLaVista = async (req, res) => {
+const obtenerTodosLosUsuariosDeLaVistaOld = async (req, res) => {
 
     try {
-        const { nombre_corto } = req.params;
+        const {nombre_corto} = req.params;
 
         // Verificamos si el usuario existe
         const obtenerUsuarios = () => {
@@ -304,7 +127,316 @@ const obtenerTodosLosUsuariosDeLaVista = async (req, res) => {
 
 };
 
-// Para asignar roles a un usuario
+// ==================== NUEVOS METODOS ====================
+
+const obtenerRolesPorJerarquia = async (req, res) => {
+    try {
+        const {tipo_usuario} = req.usuario;
+
+        const jerarquia = {
+            'ADMINISTRADOR': ['GSP', 'JTMT', 'SUP', 'COD'], // ADMINISTRADOR PUEDE VER TODOS LOS ROLES
+            'ESPECIALISTA': ['JTMT'], // ESPECIALISTA(GSP) SOLO EL ROL JEFE DE TURNO(JTMT)
+            'JEFE DE TURNO': ['SUP'], // JEFE DE TURNO(JTMT) SOLO EL ROL SUPERVISOR(SUP)
+            'SUPERVISOR': ['COD'], // SUPERVISOR(SUP) SOLO EL ROL CODIFICADOR(COD)
+            'CODIFICADOR': [] // CODIFICADOR(COD) NO VE NADA
+        };
+
+        const sistemasPermitidos = jerarquia[tipo_usuario] || [];
+
+        // Si no tiene permisos para el sistema, retornar lista vacia
+        if (sistemasPermitidos.length === 0) {
+            return res.status(200).json({
+                roles: [],
+                icon: "info",
+                statusCode: 200,
+                message: `No tiene permisos para asignar roles`,
+                path: `/roles/jerarquia/sistemas`
+            });
+        }
+
+        // Construir query con placeholders para los sistemas permitidos
+        const placeholders = sistemasPermitidos.map((_, i) => `$${i + 1}`).join(', ');
+
+        const sqlQuery = `
+            SELECT id_rol, rol, descripcion, nivel, sistema
+            FROM autenticacion.rol
+            WHERE sistema IN (${placeholders})
+            ORDER BY id_rol
+        `;
+
+        // Función para ejecutar la consulta
+        const consultarRoles = () => {
+            return new Promise((resolve, reject) => {
+                con.query(
+                    sqlQuery,
+                    sistemasPermitidos,
+                    (err, result) => {
+                        if (err) reject(err);
+                        else resolve(result);
+                    }
+                );
+            });
+        };
+
+        // Ejecutar la consulta
+        const result = await consultarRoles();
+
+        // Verificar si hay resultados
+        if (result.rowCount > 0) {
+            return res.status(200).json({
+                roles: result.rows,
+                icon: "success",
+                statusCode: 200,
+                message: `Roles disponibles para ${tipo_usuario}`,
+                path: `/roles/jerarquia/sistemas`
+            });
+        } else {
+            return res.status(200).json({
+                roles: [],
+                icon: "info",
+                statusCode: 200,
+                message: `No se encontraron roles asignables para ${tipo_usuario}`,
+                path: `/roles/jerarquia/sistemas`
+            });
+        }
+    } catch (error) {
+        console.error("Error en obtenerRolesPorJerarquia:", error);
+        return res.status(error.sql ? 400 : 500).json({
+            statusCode: error.sql ? 400 : 500,
+            message: error.message || 'Error al obtener roles por jerarquía',
+            path: `/roles/jerarquia/sistemas`
+        });
+    }
+};
+
+const obtenerUsuariosPorJerarquiaOld = async (req, res) => {
+    try {
+        const {nombre_corto} = req.params;
+
+        // Extraer el tipo de usuario del token
+        const {tipo_usuario} = req.usuario;
+
+        // Jerarquía de roles y qué roles puede ver cada tipo de usuario
+        const jerarquia = {
+            'ADMINISTRADOR': ['ESPECIALISTA', 'JEFE DE TURNO', 'SUPERVISOR', 'CODIFICADOR'], // ADMINISTRADOR PUEDE VER TODOS LOS USUARIOS SIN IMPORTAR EL ROL
+            'ESPECIALISTA': ['JEFE DE TURNO'], // ESPECIALISTA(GSP) SOLO PUEDE VER A LOS USUARIOS CON ROL JEFE DE TURNO(JTMT)
+            'JEFE DE TURNO': ['SUPERVISOR'], // JEFE DE TURNO(JTMT) SOLO PUEDE VER A LOS USUARIOS CON EL ROL SUPERVISOR(SUP)
+            'SUPERVISOR': ['CODIFICADOR'], // SUPERVISOR(SUP) SOLO PUEDE VER A LOS USUARIOS CON EL ROL CODIFICADOR(COD)
+            'CODIFICADOR': [] // CODIFICADOR(COD) NO VE NINGUN USUARIO
+        };
+
+        // Verificar si el tipo de usuario es valido
+        if (!jerarquia[tipo_usuario]) {
+            return res.status(403).json({
+                icon: "error",
+                statusCode: 403,
+                message: "Tipo de usuario no autorizado",
+                path: "/roles/jerarquia"
+            });
+        }
+
+        // Si el usuario no puede ver a nadie, retornar lista vacia
+        if (jerarquia[tipo_usuario].length === 0) {
+            return res.status(200).json({
+                roles: [],
+                icon: "info",
+                statusCode: 200,
+                message: "No tiene permisos para ver usuarios",
+                path: "/roles/jerarquia"
+            });
+        }
+
+        // Construir la condicion IN para la consulta SQL
+        const rolesVisibles = jerarquia[tipo_usuario];
+        const condicionRoles = rolesVisibles.map(rol => `'${rol}'`).join(', ');
+
+        // Metodo para obtener usuarios filtrados por roles
+        const obtenerUsuariosFiltrados = () => {
+            return new Promise((resolve, reject) => {
+                con.query(
+                    `SELECT aut_id_usuario,
+                    aut_us_usuario,
+                    aut_us_nombres,
+                    aut_us_paterno,
+                    aut_us_materno,
+                    aut_us_ci,
+                    per_correo_electronico,
+                    aut_us_rol,
+                    rol,
+                    aut_us_estado
+             FROM monitoreo.vw_usuarios
+             WHERE rol IN (${condicionRoles})
+             AND aut_us_rol IN (SELECT r.id_rol
+                               FROM autenticacion.rol r
+                               WHERE r.nombre_corto_nivel ILIKE $1)`,
+                    [nombre_corto],
+                    (err, result) => {
+                        if (err) reject(err);
+                        else resolve(result);
+                    }
+                );
+            });
+        };
+
+        // Obtener los usuarios segun la jerarquía
+        const usuarios = await obtenerUsuariosFiltrados();
+
+        // Verificar si hay resultados
+        if (usuarios.rowCount > 0) {
+            return res.status(200).json({
+                roles: usuarios.rows,
+                icon: "success",
+                statusCode: 200,
+                message: `Lista de usuarios visibles para ${tipo_usuario}`,
+                path: "/roles/jerarquia"
+            });
+        } else {
+            return res.status(204).json({
+                icon: "info",
+                statusCode: 204,
+                message: "No se encontraron usuarios",
+                path: "/roles/jerarquia"
+            });
+        }
+    } catch (error) {
+        console.error("Error en el metodo obtenerUsuariosPorJerarquia:", error);
+        return res.status(error.sql ? 400 : 500).json({
+            statusCode: error.sql ? 400 : 500,
+            message: error.message || 'Error al obtener usuarios por jerarquía',
+            path: "/roles/jerarquia"
+        });
+    }
+};
+
+const obtenerUsuariosPorJerarquia = async (req, res) => {
+    try {
+        const {nombre_corto} = req.params;
+
+        // Extraer el tipo de usuario del token
+        const {tipo_usuario} = req.usuario;
+
+        // Jerarquía de roles y qué roles puede ver cada tipo de usuario
+        const jerarquia = {
+            'ADMINISTRADOR': ['ESPECIALISTA', 'JEFE DE TURNO', 'SUPERVISOR', 'CODIFICADOR'], // ADMINISTRADOR PUEDE VER TODOS LOS USUARIOS SIN IMPORTAR EL ROL
+            'ESPECIALISTA': ['JEFE DE TURNO'], // ESPECIALISTA(GSP) SOLO PUEDE VER A LOS USUARIOS CON ROL JEFE DE TURNO(JTMT)
+            'JEFE DE TURNO': ['SUPERVISOR'], // JEFE DE TURNO(JTMT) SOLO PUEDE VER A LOS USUARIOS CON EL ROL SUPERVISOR(SUP)
+            'SUPERVISOR': ['CODIFICADOR'], // SUPERVISOR(SUP) SOLO PUEDE VER A LOS USUARIOS CON EL ROL CODIFICADOR(COD)
+            'CODIFICADOR': [] // CODIFICADOR(COD) NO VE NINGUN USUARIO
+        };
+
+        // Verificar si el tipo de usuario es valido
+        if (!jerarquia[tipo_usuario]) {
+            return res.status(403).json({
+                icon: "error",
+                statusCode: 403,
+                message: "Tipo de usuario no autorizado",
+                path: "/roles/jerarquia"
+            });
+        }
+
+        // Si el usuario no puede ver a nadie, retornar lista vacia
+        if (jerarquia[tipo_usuario].length === 0) {
+            return res.status(200).json({
+                roles: [],
+                icon: "info",
+                statusCode: 200,
+                message: "No tiene permisos para ver usuarios",
+                path: "/roles/jerarquia"
+            });
+        }
+
+        // Construir la condicion IN para la consulta SQL
+        const rolesVisibles = jerarquia[tipo_usuario];
+        const condicionRoles = rolesVisibles.map(rol => `'${rol}'`).join(', ');
+
+        // Mapeo de tipos de usuario a códigos de sistema
+        const tipoUsuarioASistema = {
+            'ESPECIALISTA': 'GSP',
+            'JEFE DE TURNO': 'JTMT',
+            'SUPERVISOR': 'SUP',
+            'CODIFICADOR': 'COD'
+        };
+
+        // Obtener el código de sistema para el usuario actual
+        const sistemaUsuarioActual = tipoUsuarioASistema[tipo_usuario];
+
+        // Metodo para obtener usuarios filtrados por roles con información de asignación
+        const obtenerUsuariosFiltrados = () => {
+            return new Promise((resolve, reject) => {
+                con.query(
+                    `SELECT 
+                        u.aut_id_usuario,
+                        u.aut_us_usuario,
+                        u.aut_us_nombres,
+                        u.aut_us_paterno,
+                        u.aut_us_materno,
+                        u.aut_us_ci,
+                        u.per_correo_electronico,
+                        u.aut_us_rol,
+                        u.rol,
+                        u.aut_us_estado,
+                        -- Nuevos campos de asignación
+                        CASE WHEN a.id IS NOT NULL THEN TRUE ELSE FALSE END AS esta_asignado,
+                        a.fecha_asignacion,
+                        a.turno,
+                        asignador.aut_us_usuario AS asignador_nombre,
+                        -- Relación con la tabla rol para obtener el sistema/código
+                        r2.sistema AS codigo_rol, asignador.rol AS asignador_rol
+                        FROM monitoreo.vw_usuarios u
+                        -- Join con la tabla rol para filtrar por nombre_corto_nivel
+                        JOIN autenticacion.rol r ON u.aut_us_rol = r.id_rol
+                        -- Left join con asignaciones para saber si está asignado
+                        LEFT JOIN asignacion.asignaciones a ON 
+                            u.aut_id_usuario = a.usuario_id AND 
+                            a.activo = TRUE
+                        -- Left join para obtener información del asignador
+                        LEFT JOIN monitoreo.vw_usuarios asignador ON 
+                            a.asignado_por = asignador.aut_id_usuario
+                        -- Join para obtener el código/sistema del rol
+                        LEFT JOIN autenticacion.rol r2 ON 
+                            a.rol_id = r2.id_rol
+                        WHERE u.rol IN (${condicionRoles})
+                        AND r.nombre_corto_nivel ILIKE $1
+                        ORDER BY u.aut_us_usuario`,
+                            [nombre_corto],
+                            (err, result) => {
+                                if (err) reject(err);
+                                else resolve(result);
+                            }
+                        );
+            });
+        };
+
+        // Obtener los usuarios segun la jerarquía
+        const usuarios = await obtenerUsuariosFiltrados();
+
+        // Verificar si hay resultados
+        if (usuarios.rowCount > 0) {
+            return res.status(200).json({
+                roles: usuarios.rows,
+                icon: "success",
+                statusCode: 200,
+                message: `Lista de usuarios visibles para ${tipo_usuario}`,
+                path: "/roles/jerarquia"
+            });
+        } else {
+            return res.status(204).json({
+                icon: "info",
+                statusCode: 204,
+                message: "No se encontraron usuarios",
+                path: "/roles/jerarquia"
+            });
+        }
+    } catch (error) {
+        console.error("Error en el metodo obtenerUsuariosPorJerarquia:", error);
+        return res.status(error.sql ? 400 : 500).json({
+            statusCode: error.sql ? 400 : 500,
+            message: error.message || 'Error al obtener usuarios por jerarquía',
+            path: "/roles/jerarquia"
+        });
+    }
+};
+
 const asignarRoles = async (req, res) => {
     // Creamos una promesa para realizar una transacción
     const realizarTransaccion = async () => {
@@ -524,7 +656,7 @@ const asignarRoles = async (req, res) => {
 // Para obtener el historial de roles de un usuario
 const obtenerHistorialRoles = async (req, res) => {
     try {
-        const { usuario_id } = req.params;
+        const {usuario_id} = req.params;
 
         if (!usuario_id) {
             return res.status(400).json({
@@ -632,7 +764,7 @@ const desactivarAsignacionRolInsertarManualEnElHistorial = async (req, res) => {
         // Iniciamos una transacción
         await client.query('BEGIN');
 
-        const { asignacion_id, motivo_cambio } = req.body;
+        const {asignacion_id, motivo_cambio} = req.body;
 
         if (!asignacion_id || !motivo_cambio) {
             return res.status(400).json({
@@ -755,7 +887,7 @@ const desactivarAsignacionRol = async (req, res) => {
         // Iniciamos una transacción
         await client.query('BEGIN');
 
-        const { asignacion_id, motivo_cambio = 'BAJA' } = req.body;
+        const {asignacion_id, motivo_cambio = 'BAJA'} = req.body;
 
         if (!asignacion_id) {
             return res.status(400).json({
@@ -853,7 +985,7 @@ const reasignarRol = async (req, res) => {
         // Iniciamos una transacción
         await client.query('BEGIN');
 
-        const { usuario_id, rol_id, turno = 'N/A' } = req.body;
+        const {usuario_id, rol_id, turno = 'N/A'} = req.body;
 
         if (!usuario_id || !rol_id) {
             return res.status(400).json({

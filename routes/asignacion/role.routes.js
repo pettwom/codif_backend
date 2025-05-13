@@ -15,41 +15,18 @@ const {
     reasignarRol
 } = require("../../controllers/asignacion/role.controller");
 
-//router.get("/", obtenerTodosLosRoles);obtenerRolesPorSistema
-//router.get("/sistema/:sistema", tienePermiso(["ADMINISTRADOR", "ESPECIALISTA", "JEFE DE TURNO", "SUPERVISOR", "CODIFICADOR"]), obtenerRolesPorJerarquia);
+// Ruta para obtener roles segun su jerarquia, es decir GSP->JTMT y asi
 router.get("/sistema", tienePermiso(["ADMINISTRADOR", "ESPECIALISTA", "JEFE DE TURNO", "SUPERVISOR", "CODIFICADOR"]), obtenerRolesPorJerarquia);
 
-/*
-router.get(
-    "/usuarios/:nombre_corto",
-    tienePermiso([
-        "ADMINISTRADOR",
-        "ESPECIALISTA",
-        "JEFE DE TURNO",
-        "SUPERVISOR",
-        "CODIFICADOR"
-    ]),
-    obtenerTodosLosUsuariosDeLaVista
-);
-*/
-
+// Ruta para obtener usuarios segun su jerarquia, es decir GSP->JTMT solo puede ver usuarios JTMT y asi
 router.get('/usuarios/:nombre_corto', tienePermiso(["ADMINISTRADOR", "ESPECIALISTA", "JEFE DE TURNO", "SUPERVISOR", "CODIFICADOR"]), obtenerUsuariosPorJerarquia);
 
 router.post("/asignar", esAdministrador, asignarRoles);
 
-router.get(
-    "/historial/:usuario_id", 
-    tienePermiso([
-        "ADMINISTRADOR",
-        "ESPECIALISTA",
-        "JEFE DE TURNO",
-        "SUPERVISOR",
-        "CODIFICADOR"
-    ]),
-    obtenerHistorialRoles
-);
+router.get("/historial/:usuario_id", obtenerHistorialRoles);
 
 router.post("/desactivar", esAdministrador, desactivarAsignacionRol);
+
 router.post('/reasignar', esAdministrador, reasignarRol);
 
 module.exports = router;

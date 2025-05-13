@@ -17,11 +17,11 @@ module.exports = function setupApi() {
   api.use('/', require('../routes/log.routes'));
 
   api.use('/roles', require('../routes/asignacion/role.routes'));
-  api.use('/especialista', require('../routes/asignacion/especialista.routes'));
-  api.use('/jefatura', require('../routes/asignacion/jefatura.routes'));
-  api.use('/supervisor', require('../routes/asignacion/supervisor.routes'));
+  // api.use('/especialista', require('../routes/asignacion/especialista.routes'));
+  // api.use('/jefatura', require('../routes/asignacion/jefatura.routes'));
+  // api.use('/supervisor', require('../routes/asignacion/supervisor.routes'));
 
-  api.use('/', require('../routes/asignacion/rolesEspecificos.routes'));
+  api.use('/jerarquia', require('../routes/asignacion/rolesEspecificos.routes'));
 
   return api;
 };
