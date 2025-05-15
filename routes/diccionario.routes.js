@@ -16,7 +16,8 @@ const {
   updateCorrector,
   deleteCorrector,
   getClasificador,
-  getDatosClasificador
+  getDatosClasificador,
+  getDatosClasificadorAll
   
 } = require("../controllers/system/diccionario.controller");
 
@@ -38,5 +39,6 @@ router.put("/deleteCorrector", deleteCorrector);
 //clasificador
 router.get("/getClasificador", getClasificador);
 router.get("/getDatosClasificador/:clas_select", getDatosClasificador);
+router.get("/getDatosClasificadorAll", getDatosClasificadorAll);
 
 module.exports = router;

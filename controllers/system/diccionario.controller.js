@@ -355,6 +355,28 @@ const getDatosClasificador = async (req, res) => {
     })
   })
 }
+const getDatosClasificadorAll = async (req, res) => {
+  var query = `select row_number() over(order by clas_desc)number, id_clasificador, clasificador, clas_desc , codigo, descripcion, to_char(cc.feccre, 'dd-mm-yyyy')fecha_creacion, cc.usucre creador, to_char(cc.fecmod, 'dd-mm-yyyy')fecha_modificacion, cc.usumod modificador
+  from codificacion.cod_clasificador cc 
+  where estado = 'ACTIVO'
+  order by codigo`
+  // console.log(query);
+  await con.query(query, (err, result) => {
+    if (err) {
+      return res.json({
+        title: 'Error',
+        icon: 'error',
+        text: err.message
+      })
+    }
+    return res.status(200).json({
+      title: 'Correcto',
+      icon: 'success',
+      text: result.rowCount > 0 ? 'Se listaron correctamente' : 'No se encontraron Datos',
+      data: result.rowCount > 0 ? result.rows : ''
+    })
+  })
+}
 
 
 // ? ***************** CORRECTOR *****************
@@ -498,5 +520,6 @@ module.exports = {
 
   //clasificador 
   getClasificador,
-  getDatosClasificador
+  getDatosClasificador,
+  getDatosClasificadorAll
 };
