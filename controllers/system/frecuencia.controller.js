@@ -69,9 +69,8 @@ const getAe = async (req, res) => {
   try {
     var ae = await con.query(`select distinct ae_unico
     from codificacion.cod_preguntas_temp cpt 
-    where cpt.cod_depto = '${req.params.depto}' and cpt.cod_mpio = '${req.params.mpio}' and cpt.ag_unico = '${
-      req.params.ag
-    }' `);
+    where cpt.cod_depto = '${req.params.depto}' and cpt.cod_mpio = '${req.params.mpio}' and cpt.ag_unico = '${req.params.ag
+      }' `);
     return res.status(200).json({
       title: "Correcto",
       icon: "success",
@@ -117,31 +116,60 @@ const searchFrec = async (req, res) => {
 };
 
 const saveCat = async (req, res) => {
-  try{
-  let _user = await userData(req, res);
-  var params = req.body;
-  var resultado = await con.query(`INSERT INTO "codificacion"."cod_catalogo" 
+  try {
+    let _user = await userData(req, res);
+    var params = req.body;
+    var resultado = await con.query(`INSERT INTO "codificacion"."cod_catalogo" 
     ("cat_cuest", "cat_desc", "catalogo", "codigo", "descripcion", "estado", "usucre", "feccre") 
     VALUES ('${params.cat_cuest}', '${params.desc_model}', '${params.catalogo}', '${params.codigo}', '${params.result}', 'ACTIVO', '${_user.login}', CURRENT_TIMESTAMP);
 `)
-  return res.status(200).json({
-    title: 'Correcto',
-    icon: 'success',
-    text: 'Se Registro Correctamente el Catálogo'
-  });
-}catch(e){
-  return res.json({
-    title: 'Error',
-    icon: 'error',
-    text: e.messege
-  });
-}
+    return res.status(200).json({
+      title: 'Correcto',
+      icon: 'success',
+      text: 'Se Registro Correctamente el Catálogo'
+    });
+  } catch (e) {
+    return res.json({
+      title: 'Error',
+      icon: 'error',
+      text: e.messege
+    });
+  }
 };
+const getSearchCodif = async (req, res) => {
+  try {
+    var params = req.body;
+    var query = "";
+    query += params.depto != "" ? ` depto = '${params.depto}' ` : "";
+    query += params.mpio != "" ? ` and mpio = '${params.mpio}' ` : "";
+    query += params.ag != "" ? ` and ag_unico = '${params.ag}' ` : "";
+    query += params.ae != "" ? ` and ae_unico = '${params.ae}' ` : "";
+
+    var resultado = await con.query(`  
+      select row_number()over(order by cec.depto)nro,  cec.depto, cec.mpio, cec.ag_unico, cec.ae_unico, cec.estado, cec.respuesta, cec.respuesta_normalizada, cec.id_encuesta, cec.id_pregunta , cec.codigo_respuesta, ap.pre_numero_pregunta
+      from codificacion.cod_encuesta_codificacion cec 
+      join cuestionarios.apk_preguntas ap on ap.pre_id = cec.id_pregunta
+      where ${query} and estado = 'CODIFICACION_AUTOMATICA' `);
+    return res.status(200).json({
+      title: "Correcto",
+      icon: "success",
+      text: resultado.rowCount > 0 ? "Se listaron Correctamente" : "No se encontraron Datos",
+      data: resultado.rowCount > 0 ? resultado.rows : ""
+    });
+  } catch (e) {
+    return res.json({
+      title: "Error",
+      icon: "error",
+      text: e.messege
+    });
+  }
+}
 module.exports = {
   getDepto,
   getMpio,
   getAg,
   getAe,
   searchFrec,
-  saveCat
+  saveCat,
+  getSearchCodif
 };

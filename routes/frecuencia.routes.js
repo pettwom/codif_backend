@@ -9,7 +9,8 @@ const {
   getAg,
   getAe,
   searchFrec,
-  saveCat
+  saveCat,
+  getSearchCodif
 } = require("../controllers/system/frecuencia.controller");
 
 
@@ -19,6 +20,8 @@ router.get("/getAg/:depto/:mpio", getAg);
 router.get("/getAe/:depto/:mpio/:ag", getAe);
 router.post("/searchFrec", searchFrec);
 router.post("/saveCat", saveCat);
+router.post("/getSearchCodif", getSearchCodif);
+
 
 
 
