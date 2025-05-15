@@ -355,11 +355,8 @@ const getDatosClasificador = async (req, res) => {
     })
   })
 }
-const getDatosClasificadorAll = async (req, res) => {
-  var query = `select row_number() over(order by clas_desc)number, id_clasificador, clasificador, clas_desc , codigo, descripcion, to_char(cc.feccre, 'dd-mm-yyyy')fecha_creacion, cc.usucre creador, to_char(cc.fecmod, 'dd-mm-yyyy')fecha_modificacion, cc.usumod modificador
-  from codificacion.cod_clasificador cc 
-  where estado = 'ACTIVO'
-  order by codigo`
+const generarAutomaticas = async (req, res) => {
+  var query = `select * from codificacion.fn_codificacion_automatica()`
   // console.log(query);
   await con.query(query, (err, result) => {
     if (err) {
@@ -521,5 +518,5 @@ module.exports = {
   //clasificador 
   getClasificador,
   getDatosClasificador,
-  getDatosClasificadorAll
+  generarAutomaticas
 };

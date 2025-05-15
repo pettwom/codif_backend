@@ -17,7 +17,7 @@ const {
   deleteCorrector,
   getClasificador,
   getDatosClasificador,
-  getDatosClasificadorAll
+  generarAutomaticas
   
 } = require("../controllers/system/diccionario.controller");
 
@@ -39,6 +39,6 @@ router.put("/deleteCorrector", deleteCorrector);
 //clasificador
 router.get("/getClasificador", getClasificador);
 router.get("/getDatosClasificador/:clas_select", getDatosClasificador);
-router.get("/getDatosClasificadorAll", getDatosClasificadorAll);
+router.get("/generarAutomaticas", generarAutomaticas);
 
 module.exports = router;
