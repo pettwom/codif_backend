@@ -22,6 +22,7 @@ module.exports = function setupApi() {
   // api.use('/supervisor', require('../routes/asignacion/supervisor.routes'));
 
   api.use('/jerarquia', require('../routes/asignacion/rolesEspecificos.routes'));
+  api.use('/codificacion-asistida', require('../routes/distribucion/codificacionAsistida.routes'));
 
   return api;
 };

@@ -1,134 +1,5 @@
 const {con} = require("../../config/db");
 
-// ================== METODOS ANTERIORES ==================
-
-const obtenerRolesPorSistemaOld = async (req, res) => {
-    try {
-        const {sistema} = req.params;
-
-        const sistemasArray = sistema.split(',').map(s => s.trim());
-        const placeholders = sistemasArray.map((_, i) => `$${i + 1}`).join(', ');
-
-        const sqlQuery = `
-            SELECT id_rol, rol, descripcion, nivel, sistema
-            FROM autenticacion.rol
-            WHERE sistema IN (${placeholders})
-            ORDER BY id_rol
-        `;
-
-        const consultarRoles = () => {
-            return new Promise((resolve, reject) => {
-                con.query(
-                    sqlQuery,
-                    sistemasArray,
-                    (err, result) => {
-                        if (err) reject(err);
-                        else resolve(result);
-                    }
-                );
-            });
-        };
-
-        const result = await consultarRoles();
-
-        if (result.rowCount > 0) {
-            return res.status(200).json({
-                roles: result.rows,
-                icon: "success",
-                statusCode: 200,
-                message: `Lista de roles del sistema: ${sistema}`,
-                path: `/roles/sistema/${sistema}`
-            });
-        } else {
-            return res.status(200).json({
-                roles: [],
-                icon: "info",
-                statusCode: 200,
-                message: `No se encontraron roles para el sistema: ${sistema}`,
-                path: `/roles/sistema/${sistema}`
-            });
-        }
-    } catch (error) {
-        console.error("Error en obtenerRolesPorSistema:", error);
-        return res.status(error.sql ? 400 : 500).json({
-            statusCode: error.sql ? 400 : 500,
-            message: error.message || 'Error al obtener roles por sistema',
-            path: `/roles/sistema/${req.params.sistema}`
-        });
-    }
-};
-
-const obtenerTodosLosUsuariosDeLaVistaOld = async (req, res) => {
-
-    try {
-        const {nombre_corto} = req.params;
-
-        // Verificamos si el usuario existe
-        const obtenerUsuarios = () => {
-            return new Promise((resolve, reject) => {
-                con.query(
-                    `SELECT aut_id_usuario,
-                           aut_us_usuario,
-                           aut_us_nombres,
-                           aut_us_paterno,
-                           aut_us_materno,
-                           aut_us_ci,
-                           per_correo_electronico,
-                           aut_us_rol,
-                           rol,
-                           aut_us_estado
-                    FROM monitoreo.vw_usuarios
-                    WHERE aut_us_rol IN (SELECT r.id_rol
-                     FROM autenticacion.rol r
-                     WHERE r.nombre_corto_nivel ILIKE $1)`,
-                    [nombre_corto],
-                    (err, result) => {
-                        if (err) reject(err);
-                        else resolve(result);
-                    }
-                );
-            });
-        };
-
-        const usuarios = await obtenerUsuarios();
-
-        if (usuarios.rowCount === 0) {
-            throw {
-                statusCode: 404,
-                message: "No existen Usuarios"
-            };
-        }
-
-        // verifica si hay resultados
-        if (usuarios.rowCount > 0) {
-            return res.status(200).json({
-                roles: usuarios.rows,
-                icon: "success",
-                statusCode: 200,
-                message: "Lista de todos los Usuarios de la vista",
-                path: "/roles"
-            });
-        } else {
-            return res.status(204).json({
-                icon: "info",
-                statusCode: 204,
-                message: "No se encontraron roles",
-                path: "/roles"
-            });
-        }
-    } catch (error) {
-        console.error("Error en obtenerTodosLosUsuarios:", error);
-        return res.status(error.sql ? 400 : 500).json({
-            statusCode: error.sql ? 400 : 500,
-            message: error.message || 'Error al obtener roles',
-            path: "/roles"
-        });
-    }
-
-};
-
-// ==================== NUEVOS METODOS ====================
-
 const obtenerRolesPorJerarquia = async (req, res) => {
     try {
         const {tipo_usuario} = req.usuario;
@@ -205,105 +76,6 @@ const obtenerRolesPorJerarquia = async (req, res) => {
             statusCode: error.sql ? 400 : 500,
             message: error.message || 'Error al obtener roles por jerarquía',
             path: `/roles/jerarquia/sistemas`
-        });
-    }
-};
-
-const obtenerUsuariosPorJerarquiaOld = async (req, res) => {
-    try {
-        const {nombre_corto} = req.params;
-
-        // Extraer el tipo de usuario del token
-        const {tipo_usuario} = req.usuario;
-
-        // Jerarquía de roles y qué roles puede ver cada tipo de usuario
-        const jerarquia = {
-            'ADMINISTRADOR': ['ESPECIALISTA', 'JEFE DE TURNO', 'SUPERVISOR', 'CODIFICADOR'], // ADMINISTRADOR PUEDE VER TODOS LOS USUARIOS SIN IMPORTAR EL ROL
-            'ESPECIALISTA': ['JEFE DE TURNO'], // ESPECIALISTA(GSP) SOLO PUEDE VER A LOS USUARIOS CON ROL JEFE DE TURNO(JTMT)
-            'JEFE DE TURNO': ['SUPERVISOR'], // JEFE DE TURNO(JTMT) SOLO PUEDE VER A LOS USUARIOS CON EL ROL SUPERVISOR(SUP)
-            'SUPERVISOR': ['CODIFICADOR'], // SUPERVISOR(SUP) SOLO PUEDE VER A LOS USUARIOS CON EL ROL CODIFICADOR(COD)
-            'CODIFICADOR': [] // CODIFICADOR(COD) NO VE NINGUN USUARIO
-        };
-
-        // Verificar si el tipo de usuario es valido
-        if (!jerarquia[tipo_usuario]) {
-            return res.status(403).json({
-                icon: "error",
-                statusCode: 403,
-                message: "Tipo de usuario no autorizado",
-                path: "/roles/jerarquia"
-            });
-        }
-
-        // Si el usuario no puede ver a nadie, retornar lista vacia
-        if (jerarquia[tipo_usuario].length === 0) {
-            return res.status(200).json({
-                roles: [],
-                icon: "info",
-                statusCode: 200,
-                message: "No tiene permisos para ver usuarios",
-                path: "/roles/jerarquia"
-            });
-        }
-
-        // Construir la condicion IN para la consulta SQL
-        const rolesVisibles = jerarquia[tipo_usuario];
-        const condicionRoles = rolesVisibles.map(rol => `'${rol}'`).join(', ');
-
-        // Metodo para obtener usuarios filtrados por roles
-        const obtenerUsuariosFiltrados = () => {
-            return new Promise((resolve, reject) => {
-                con.query(
-                    `SELECT aut_id_usuario,
-                    aut_us_usuario,
-                    aut_us_nombres,
-                    aut_us_paterno,
-                    aut_us_materno,
-                    aut_us_ci,
-                    per_correo_electronico,
-                    aut_us_rol,
-                    rol,
-                    aut_us_estado
-             FROM monitoreo.vw_usuarios
-             WHERE rol IN (${condicionRoles})
-             AND aut_us_rol IN (SELECT r.id_rol
-                               FROM autenticacion.rol r
-                               WHERE r.nombre_corto_nivel ILIKE $1)`,
-                    [nombre_corto],
-                    (err, result) => {
-                        if (err) reject(err);
-                        else resolve(result);
-                    }
-                );
-            });
-        };
-
-        // Obtener los usuarios segun la jerarquía
-        const usuarios = await obtenerUsuariosFiltrados();
-
-        // Verificar si hay resultados
-        if (usuarios.rowCount > 0) {
-            return res.status(200).json({
-                roles: usuarios.rows,
-                icon: "success",
-                statusCode: 200,
-                message: `Lista de usuarios visibles para ${tipo_usuario}`,
-                path: "/roles/jerarquia"
-            });
-        } else {
-            return res.status(204).json({
-                icon: "info",
-                statusCode: 204,
-                message: "No se encontraron usuarios",
-                path: "/roles/jerarquia"
-            });
-        }
-    } catch (error) {
-        console.error("Error en el metodo obtenerUsuariosPorJerarquia:", error);
-        return res.status(error.sql ? 400 : 500).json({
-            statusCode: error.sql ? 400 : 500,
-            message: error.message || 'Error al obtener usuarios por jerarquía',
-            path: "/roles/jerarquia"
         });
     }
 };
@@ -1181,13 +953,630 @@ const reasignarRol = async (req, res) => {
     }
 };
 
+const obtenerUsuariosAsignadosPorMi = async (req, res) => {
+    try {
+        // Extraer el ID del usuario actual y su rol actual
+        const usuarioActualId = req.usuario.id_usuario;
+        const rolActual = req.rolActual;
+
+        // Mapeo de roles del sistema a nombres más descriptivos
+        const rolSistemaANombre = {
+            'GSP': 'ESPECIALISTA',
+            'JTMT': 'JEFE DE TURNO',
+            'SUP': 'SUPERVISOR',
+            'COD': 'CODIFICADOR'
+        };
+
+        // Obtener el nombre descriptivo del rol actual
+        const nombreRolActual = rolSistemaANombre[rolActual] || rolActual;
+
+        // Jerarquía de roles y qué roles puede ver cada tipo de usuario
+        const jerarquia = {
+            'GSP': ['JTMT'],
+            'JTMT': ['SUP'],
+            'SUP': ['COD'],
+            'COD': []
+        };
+
+        // Verificar si el rol del usuario es válido
+        if (!jerarquia[rolActual]) {
+            return res.status(403).json({
+                icon: "error",
+                statusCode: 403,
+                message: "Rol no autorizado",
+                path: "/roles/mis-asignaciones"
+            });
+        }
+
+        // Si el usuario no puede ver a nadie, retornar lista vacía
+        if (jerarquia[rolActual].length === 0) {
+            return res.status(200).json({
+                roles: [],
+                icon: "info",
+                statusCode: 200,
+                message: "No tiene permisos para ver usuarios",
+                path: "/roles/mis-asignaciones"
+            });
+        }
+
+        // Obtener los roles que este usuario puede ver
+        const rolesVisibles = jerarquia[rolActual];
+
+        // Método para obtener usuarios asignados por el usuario actual
+        const obtenerUsuariosAsignados = () => {
+            return new Promise((resolve, reject) => {
+                con.query(
+                    `SELECT 
+                        u.aut_id_usuario,
+                        u.aut_us_usuario,
+                        u.aut_us_nombres,
+                        u.aut_us_paterno,
+                        u.aut_us_materno,
+                        u.aut_us_ci,
+                        u.per_correo_electronico,
+                        u.aut_us_rol,
+                        u.rol,
+                        u.aut_us_estado,
+                        a.id AS id_asignacion,
+                        a.fecha_asignacion,
+                        a.turno,
+                        r.sistema AS codigo_rol,
+                        r.rol AS nombre_rol
+                    FROM asignacion.asignaciones a
+                    JOIN monitoreo.vw_usuarios u ON a.usuario_id = u.aut_id_usuario
+                    JOIN autenticacion.rol r ON a.rol_id = r.id_rol
+                    WHERE a.asignado_por = $1
+                    AND a.activo = TRUE
+                    AND r.sistema IN (${rolesVisibles.map(rol => `'${rol}'`).join(',')})
+                    ORDER BY a.fecha_asignacion DESC, u.aut_us_usuario`,
+                    [usuarioActualId],
+                    (err, result) => {
+                        if (err) reject(err);
+                        else resolve(result);
+                    }
+                );
+            });
+        };
+
+        // Obtener los usuarios asignados
+        const usuariosAsignados = await obtenerUsuariosAsignados();
+
+        // Organizar los resultados por turno
+        const usuariosPorTurno = {
+            mañana: usuariosAsignados.rows.filter(u => u.turno === 'MAÑANA'),
+            tarde: usuariosAsignados.rows.filter(u => u.turno === 'TARDE'),
+            sinTurno: usuariosAsignados.rows.filter(u => u.turno === 'N/A')
+        };
+
+        // Crear un objeto con información adicional para cada turno
+        const resultadoPorTurno = Object.keys(usuariosPorTurno).map(turno => {
+            const usuarios = usuariosPorTurno[turno];
+            return {
+                turno: turno === 'sinTurno' ? 'Sin turno asignado' : turno.toUpperCase(),
+                usuarios: usuarios,
+                total: usuarios.length
+            };
+        });
+
+        // Verificar si hay resultados
+        if (usuariosAsignados.rowCount > 0) {
+            return res.status(200).json({
+                icon: "success",
+                statusCode: 200,
+                message: `Personal asignado por usted (${nombreRolActual})`,
+                path: "/roles/mis-asignaciones",
+                turnos: resultadoPorTurno,
+                total: usuariosAsignados.rowCount
+            });
+        } else {
+            return res.status(200).json({
+                icon: "info",
+                statusCode: 200,
+                message: "No ha asignado personal aún",
+                path: "/roles/mis-asignaciones",
+                turnos: resultadoPorTurno,
+                total: 0
+            });
+        }
+    } catch (error) {
+        console.error("Error en el método obtenerUsuariosAsignadosPorMi:", error);
+        return res.status(error.sql ? 400 : 500).json({
+            statusCode: error.sql ? 400 : 500,
+            message: error.message || 'Error al obtener usuarios asignados',
+            path: "/roles/mis-asignaciones"
+        });
+    }
+};
+
+// Método para obtener usuarios sin asignaciones de preguntas (disponibles para asignar)
+const obtenerUsuariosDisponibles = async (req, res) => {
+    try {
+        // Extraer el ID del usuario actual y su rol actual
+        const usuarioActualId = req.usuario.id_usuario;
+        const rolActual = req.rolActual;
+
+        // Mapeo de roles del sistema a nombres más descriptivos
+        const rolSistemaANombre = {
+            'GSP': 'ESPECIALISTA',
+            'JTMT': 'JEFE DE TURNO',
+            'SUP': 'SUPERVISOR',
+            'COD': 'CODIFICADOR'
+        };
+
+        // Obtener el nombre descriptivo del rol actual
+        const nombreRolActual = rolSistemaANombre[rolActual] || rolActual;
+
+        // Jerarquía de roles y qué roles puede ver cada tipo de usuario
+        const jerarquia = {
+            'GSP': ['JTMT'],
+            'JTMT': ['SUP'],
+            'SUP': ['COD'],
+            'COD': []
+        };
+
+        // Verificar si el rol del usuario es válido
+        if (!jerarquia[rolActual]) {
+            return res.status(403).json({
+                icon: "error",
+                statusCode: 403,
+                message: "Rol no autorizado",
+                path: "/roles/usuarios-disponibles"
+            });
+        }
+
+        // Si el usuario no puede ver a nadie, retornar lista vacía
+        if (jerarquia[rolActual].length === 0) {
+            return res.status(200).json({
+                usuarios: [],
+                icon: "info",
+                statusCode: 200,
+                message: "No tiene permisos para ver usuarios",
+                path: "/roles/usuarios-disponibles"
+            });
+        }
+
+        // Obtener los roles que este usuario puede ver
+        const rolesVisibles = jerarquia[rolActual];
+
+        // Método para obtener usuarios asignados por el usuario actual y que NO tienen preguntas asignadas
+        const obtenerUsuariosDisponibles = () => {
+            return new Promise((resolve, reject) => {
+                con.query(
+                    `SELECT 
+                        u.aut_id_usuario,
+                        u.aut_us_usuario,
+                        u.aut_us_nombres,
+                        u.aut_us_paterno,
+                        u.aut_us_materno,
+                        u.aut_us_ci,
+                        u.per_correo_electronico,
+                        u.aut_us_rol,
+                        u.rol,
+                        u.aut_us_estado,
+                        a.id AS id_asignacion,
+                        a.fecha_asignacion,
+                        a.turno,
+                        r.sistema AS codigo_rol,
+                        r.rol AS nombre_rol,
+                        FALSE AS tiene_preguntas_asignadas,
+                        0 AS cantidad_preguntas_asignadas,
+                        0 AS total_codificaciones_asignadas
+                    FROM asignacion.asignaciones a
+                    JOIN monitoreo.vw_usuarios u ON a.usuario_id = u.aut_id_usuario
+                    JOIN autenticacion.rol r ON a.rol_id = r.id_rol
+                    LEFT JOIN (
+                        SELECT DISTINCT codificador_id
+                        FROM asignacion.asignacion_preguntas
+                        WHERE esta_asignada = TRUE
+                    ) ap ON u.aut_id_usuario = ap.codificador_id
+                    WHERE a.asignado_por = $1
+                    AND a.activo = TRUE
+                    AND r.sistema IN (${rolesVisibles.map(rol => `'${rol}'`).join(',')})
+                    AND ap.codificador_id IS NULL  -- Solo incluir usuarios SIN preguntas asignadas
+                    ORDER BY a.fecha_asignacion DESC, u.aut_us_usuario`,
+                    [usuarioActualId],
+                    (err, result) => {
+                        if (err) reject(err);
+                        else resolve(result);
+                    }
+                );
+            });
+        };
+
+        // Obtener los usuarios disponibles
+        const usuariosDisponibles = await obtenerUsuariosDisponibles();
+
+        // Organizar los resultados por turno
+        const usuariosPorTurno = {
+            mañana: usuariosDisponibles.rows.filter(u => u.turno === 'MAÑANA'),
+            tarde: usuariosDisponibles.rows.filter(u => u.turno === 'TARDE'),
+            sinTurno: usuariosDisponibles.rows.filter(u => u.turno === 'N/A')
+        };
+
+        // Crear un objeto con información adicional para cada turno
+        const resultadoPorTurno = Object.keys(usuariosPorTurno).map(turno => {
+            const usuarios = usuariosPorTurno[turno];
+            return {
+                turno: turno === 'sinTurno' ? 'Sin turno asignado' : turno.toUpperCase(),
+                usuarios: usuarios,
+                total: usuarios.length
+            };
+        });
+
+        // Verificar si hay resultados
+        if (usuariosDisponibles.rowCount > 0) {
+            return res.status(200).json({
+                icon: "success",
+                statusCode: 200,
+                message: `Codificadores disponibles para asignar preguntas (${nombreRolActual})`,
+                path: "/roles/usuarios-disponibles",
+                turnos: resultadoPorTurno,
+                total: usuariosDisponibles.rowCount
+            });
+        } else {
+            return res.status(200).json({
+                icon: "info",
+                statusCode: 200,
+                message: "No hay codificadores disponibles para asignar preguntas",
+                path: "/roles/usuarios-disponibles",
+                turnos: resultadoPorTurno,
+                total: 0
+            });
+        }
+    } catch (error) {
+        console.error("Error en el método obtenerUsuariosDisponibles:", error);
+        return res.status(error.sql ? 400 : 500).json({
+            statusCode: error.sql ? 400 : 500,
+            message: error.message || 'Error al obtener usuarios disponibles',
+            path: "/roles/usuarios-disponibles"
+        });
+    }
+};
+
+// ----- NUEVOS METODOS --------
+
+// Método para obtener todos los usuarios asignados por mí y su estado de asignación de preguntas
+const obtenerTodosUsuariosAsignados = async (req, res) => {
+    try {
+        // Extraer el ID del usuario actual y su rol actual
+        const usuarioActualId = req.usuario.id_usuario;
+        const rolActual = req.rolActual;
+
+        // Mapeo de roles del sistema a nombres más descriptivos
+        const rolSistemaANombre = {
+            'GSP': 'ESPECIALISTA',
+            'JTMT': 'JEFE DE TURNO',
+            'SUP': 'SUPERVISOR',
+            'COD': 'CODIFICADOR'
+        };
+
+        // Obtener el nombre descriptivo del rol actual
+        const nombreRolActual = rolSistemaANombre[rolActual] || rolActual;
+
+        // Jerarquía de roles y qué roles puede ver cada tipo de usuario
+        const jerarquia = {
+            'GSP': ['JTMT'],
+            'JTMT': ['SUP'],
+            'SUP': ['COD'],
+            'COD': []
+        };
+
+        // Verificar si el rol del usuario es válido
+        if (!jerarquia[rolActual]) {
+            return res.status(403).json({
+                icon: "error",
+                statusCode: 403,
+                message: "Rol no autorizado",
+                path: "/roles/usuarios-asignados"
+            });
+        }
+
+        // Si el usuario no puede ver a nadie, retornar lista vacía
+        if (jerarquia[rolActual].length === 0) {
+            return res.status(200).json({
+                usuarios: [],
+                icon: "info",
+                statusCode: 200,
+                message: "No tiene permisos para ver usuarios",
+                path: "/roles/usuarios-asignados"
+            });
+        }
+
+        // Obtener los roles que este usuario puede ver
+        const rolesVisibles = jerarquia[rolActual];
+
+        // Método para obtener TODOS los usuarios asignados por el usuario actual
+        // con información sobre si tienen preguntas asignadas o no
+        const obtenerTodosUsuariosConEstado = () => {
+            return new Promise((resolve, reject) => {
+                con.query(
+                    `SELECT 
+                        u.aut_id_usuario,
+                        u.aut_us_usuario,
+                        u.aut_us_nombres,
+                        u.aut_us_paterno,
+                        u.aut_us_materno,
+                        u.aut_us_ci,
+                        u.per_correo_electronico,
+                        u.aut_us_rol,
+                        u.rol,
+                        u.aut_us_estado,
+                        a.id AS id_asignacion,
+                        a.fecha_asignacion,
+                        a.turno,
+                        r.sistema AS codigo_rol,
+                        r.rol AS nombre_rol,
+                        -- Información sobre asignación de preguntas
+                        CASE 
+                            WHEN ap.codificador_id IS NOT NULL THEN TRUE 
+                            ELSE FALSE 
+                        END AS tiene_preguntas_asignadas,
+                        COALESCE(ap.cantidad_preguntas, 0) AS cantidad_preguntas_asignadas,
+                        COALESCE(ap.total_codificaciones, 0) AS total_codificaciones_asignadas
+                    FROM asignacion.asignaciones a
+                    JOIN monitoreo.vw_usuarios u ON a.usuario_id = u.aut_id_usuario
+                    JOIN autenticacion.rol r ON a.rol_id = r.id_rol
+                    LEFT JOIN (
+                        SELECT 
+                            codificador_id,
+                            COUNT(DISTINCT pregunta_id) AS cantidad_preguntas,
+                            SUM(cantidad_asignada) AS total_codificaciones
+                        FROM asignacion.asignacion_preguntas
+                        WHERE esta_asignada = TRUE
+                        GROUP BY codificador_id
+                    ) ap ON u.aut_id_usuario = ap.codificador_id
+                    WHERE a.asignado_por = $1
+                    AND a.activo = TRUE
+                    AND r.sistema IN (${rolesVisibles.map(rol => `'${rol}'`).join(',')})
+                    ORDER BY a.fecha_asignacion DESC, u.aut_us_usuario`,
+                    [usuarioActualId],
+                    (err, result) => {
+                        if (err) reject(err);
+                        else resolve(result);
+                    }
+                );
+            });
+        };
+
+        // Obtener todos los usuarios asignados con su estado
+        const todosUsuarios = await obtenerTodosUsuariosConEstado();
+
+        // Organizar los resultados por turno
+        const usuariosPorTurno = {
+            mañana: todosUsuarios.rows.filter(u => u.turno === 'MAÑANA'),
+            tarde: todosUsuarios.rows.filter(u => u.turno === 'TARDE'),
+            sinTurno: todosUsuarios.rows.filter(u => u.turno === 'N/A')
+        };
+
+        // Crear un objeto con información adicional para cada turno
+        const resultadoPorTurno = Object.keys(usuariosPorTurno).map(turno => {
+            const usuarios = usuariosPorTurno[turno];
+
+            // Calcular estadísticas para este turno
+            const usuariosConPreguntas = usuarios.filter(u => u.tiene_preguntas_asignadas).length;
+            const usuariosSinPreguntas = usuarios.length - usuariosConPreguntas;
+
+            return {
+                turno: turno === 'sinTurno' ? 'Sin turno asignado' : turno.toUpperCase(),
+                usuarios: usuarios,
+                total: usuarios.length,
+                con_preguntas: usuariosConPreguntas,
+                sin_preguntas: usuariosSinPreguntas
+            };
+        });
+
+        // Obtener las estadísticas generales
+        const totalUsuarios = todosUsuarios.rowCount;
+        const usuariosConPreguntas = todosUsuarios.rows.filter(u => u.tiene_preguntas_asignadas).length;
+        const usuariosSinPreguntas = totalUsuarios - usuariosConPreguntas;
+
+        // Verificar si hay resultados
+        if (todosUsuarios.rowCount > 0) {
+            return res.status(200).json({
+                icon: "success",
+                statusCode: 200,
+                message: `Personal asignado por usted (${nombreRolActual})`,
+                path: "/roles/usuarios-asignados",
+                turnos: resultadoPorTurno,
+                total: totalUsuarios,
+                estadisticas: {
+                    total_usuarios: totalUsuarios,
+                    con_preguntas: usuariosConPreguntas,
+                    sin_preguntas: usuariosSinPreguntas,
+                    porcentaje_con_asignacion: Math.round((usuariosConPreguntas / totalUsuarios) * 100) || 0
+                }
+            });
+        } else {
+            return res.status(200).json({
+                icon: "info",
+                statusCode: 200,
+                message: "No ha asignado personal aún",
+                path: "/roles/usuarios-asignados",
+                turnos: resultadoPorTurno,
+                total: 0,
+                estadisticas: {
+                    total_usuarios: 0,
+                    con_preguntas: 0,
+                    sin_preguntas: 0,
+                    porcentaje_con_asignacion: 0
+                }
+            });
+        }
+    } catch (error) {
+        console.error("Error en el método obtenerTodosUsuariosAsignados:", error);
+        return res.status(error.sql ? 400 : 500).json({
+            statusCode: error.sql ? 400 : 500,
+            message: error.message || 'Error al obtener usuarios asignados',
+            path: "/roles/usuarios-asignados"
+        });
+    }
+};
+
+// Obtener usuarios que YA tienen preguntas asignadas
+const obtenerUsuariosConAsignaciones = async (req, res) => {
+    try {
+        // Extraer el ID del usuario actual y su rol actual
+        const usuarioActualId = req.usuario.id_usuario;
+        const rolActual = req.rolActual;
+
+        // Mapeo de roles del sistema a nombres más descriptivos
+        const rolSistemaANombre = {
+            'GSP': 'ESPECIALISTA',
+            'JTMT': 'JEFE DE TURNO',
+            'SUP': 'SUPERVISOR',
+            'COD': 'CODIFICADOR'
+        };
+
+        // Obtener el nombre descriptivo del rol actual
+        const nombreRolActual = rolSistemaANombre[rolActual] || rolActual;
+
+        // Jerarquía de roles y qué roles puede ver cada tipo de usuario
+        const jerarquia = {
+            'GSP': ['JTMT'],
+            'JTMT': ['SUP'],
+            'SUP': ['COD'],
+            'COD': []
+        };
+
+        // Verificar si el rol del usuario es válido
+        if (!jerarquia[rolActual]) {
+            return res.status(403).json({
+                icon: "error",
+                statusCode: 403,
+                message: "Rol no autorizado",
+                path: "/roles/usuarios-con-asignaciones"
+            });
+        }
+
+        // Si el usuario no puede ver a nadie, retornar lista vacía
+        if (jerarquia[rolActual].length === 0) {
+            return res.status(200).json({
+                usuarios: [],
+                icon: "info",
+                statusCode: 200,
+                message: "No tiene permisos para ver usuarios",
+                path: "/roles/usuarios-con-asignaciones"
+            });
+        }
+
+        // Obtener los roles que este usuario puede ver
+        const rolesVisibles = jerarquia[rolActual];
+
+        // Método para obtener usuarios asignados por el usuario actual y que TIENEN preguntas asignadas
+        const obtenerUsuariosConAsignaciones = () => {
+            return new Promise((resolve, reject) => {
+                con.query(
+                    `SELECT 
+                        u.aut_id_usuario,
+                        u.aut_us_usuario,
+                        u.aut_us_nombres,
+                        u.aut_us_paterno,
+                        u.aut_us_materno,
+                        u.aut_us_ci,
+                        u.per_correo_electronico,
+                        u.aut_us_rol,
+                        u.rol,
+                        u.aut_us_estado,
+                        a.id AS id_asignacion,
+                        a.fecha_asignacion,
+                        a.turno,
+                        r.sistema AS codigo_rol,
+                        r.rol AS nombre_rol,
+                        TRUE AS tiene_preguntas_asignadas,
+                        COUNT(ap.pregunta_id) AS cantidad_preguntas_asignadas,
+                        SUM(ap.cantidad_asignada) AS total_codificaciones_asignadas
+                    FROM asignacion.asignaciones a
+                    JOIN monitoreo.vw_usuarios u ON a.usuario_id = u.aut_id_usuario
+                    JOIN autenticacion.rol r ON a.rol_id = r.id_rol
+                    JOIN asignacion.asignacion_preguntas ap ON u.aut_id_usuario = ap.codificador_id AND ap.esta_asignada = TRUE
+                    WHERE a.asignado_por = $1
+                    AND a.activo = TRUE
+                    AND r.sistema IN (${rolesVisibles.map(rol => `'${rol}'`).join(',')})
+                    GROUP BY 
+                        u.aut_id_usuario,
+                        u.aut_us_usuario,
+                        u.aut_us_nombres,
+                        u.aut_us_paterno,
+                        u.aut_us_materno,
+                        u.aut_us_ci,
+                        u.per_correo_electronico,
+                        u.aut_us_rol,
+                        u.rol,
+                        u.aut_us_estado,
+                        a.id,
+                        a.fecha_asignacion,
+                        a.turno,
+                        r.sistema,
+                        r.rol
+                    ORDER BY a.fecha_asignacion DESC, u.aut_us_usuario`,
+                    [usuarioActualId],
+                    (err, result) => {
+                        if (err) reject(err);
+                        else resolve(result);
+                    }
+                );
+            });
+        };
+
+        // Obtener los usuarios con asignaciones
+        const usuariosConAsignaciones = await obtenerUsuariosConAsignaciones();
+
+        // Organizar los resultados por turno
+        const usuariosPorTurno = {
+            mañana: usuariosConAsignaciones.rows.filter(u => u.turno === 'MAÑANA'),
+            tarde: usuariosConAsignaciones.rows.filter(u => u.turno === 'TARDE'),
+            sinTurno: usuariosConAsignaciones.rows.filter(u => u.turno === 'N/A')
+        };
+
+        // Crear un objeto con información adicional para cada turno
+        const resultadoPorTurno = Object.keys(usuariosPorTurno).map(turno => {
+            const usuarios = usuariosPorTurno[turno];
+            return {
+                turno: turno === 'sinTurno' ? 'Sin turno asignado' : turno.toUpperCase(),
+                usuarios: usuarios,
+                total: usuarios.length
+            };
+        });
+
+        // Verificar si hay resultados
+        if (usuariosConAsignaciones.rowCount > 0) {
+            return res.status(200).json({
+                icon: "success",
+                statusCode: 200,
+                message: `Codificadores con preguntas asignadas (${nombreRolActual})`,
+                path: "/roles/usuarios-con-asignaciones",
+                turnos: resultadoPorTurno,
+                total: usuariosConAsignaciones.rowCount
+            });
+        } else {
+            return res.status(200).json({
+                icon: "info",
+                statusCode: 200,
+                message: "No hay codificadores con preguntas asignadas",
+                path: "/roles/usuarios-con-asignaciones",
+                turnos: resultadoPorTurno,
+                total: 0
+            });
+        }
+    } catch (error) {
+        console.error("Error en el método obtenerUsuariosConAsignaciones:", error);
+        return res.status(error.sql ? 400 : 500).json({
+            statusCode: error.sql ? 400 : 500,
+            message: error.message || 'Error al obtener usuarios con asignaciones',
+            path: "/roles/usuarios-con-asignaciones"
+        });
+    }
+};
+
 module.exports = {
-    // obtenerRolesPorSistema,
     asignarRoles,
     obtenerHistorialRoles,
     desactivarAsignacionRol,
     reasignarRol,
-    // obtenerTodosLosUsuariosDeLaVista,
     obtenerUsuariosPorJerarquia,
-    obtenerRolesPorJerarquia
+    obtenerRolesPorJerarquia,
+    obtenerUsuariosAsignadosPorMi,
+    obtenerUsuariosDisponibles,
+    obtenerTodosUsuariosAsignados,
+    obtenerUsuariosConAsignaciones
 };
